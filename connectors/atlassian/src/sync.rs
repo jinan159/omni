@@ -313,7 +313,7 @@ impl SyncManager {
 
         debug!("Validating Atlassian credentials...");
         let mut credentials = match self
-            .get_or_validate_credentials(&base_url, &user_email, &api_token)
+            .get_or_validate_credentials(&base_url, &user_email, &api_token, Some(&source_type))
             .await
         {
             Ok(creds) => creds,
@@ -326,7 +326,7 @@ impl SyncManager {
 
         if let Err(e) = self
             .auth_manager
-            .ensure_valid_credentials(&mut credentials)
+            .ensure_valid_credentials(&mut credentials, Some(&source_type))
             .await
         {
             self.sdk_client.fail(sync_run_id, &e.to_string()).await?;
@@ -522,9 +522,10 @@ impl SyncManager {
         base_url: &str,
         user_email: &str,
         api_token: &str,
+        source_type: Option<&SourceType>,
     ) -> Result<AtlassianCredentials> {
         self.auth_manager
-            .validate_credentials(base_url, user_email, api_token)
+            .validate_credentials(base_url, user_email, api_token, source_type)
             .await
     }
 
@@ -534,7 +535,7 @@ impl SyncManager {
     ) -> Result<(Vec<String>, Vec<String>)> {
         let (base_url, user_email, api_token) = config;
         let credentials = self
-            .get_or_validate_credentials(base_url, user_email, api_token)
+            .get_or_validate_credentials(base_url, user_email, api_token, None)
             .await?;
 
         let jira_projects = self
@@ -725,7 +726,7 @@ impl SyncManager {
                     };
 
                 let creds = match self
-                    .get_or_validate_credentials(&base_url, &user_email, &api_token)
+                    .get_or_validate_credentials(&base_url, &user_email, &api_token, None)
                     .await
                 {
                     Ok(c) => c,
