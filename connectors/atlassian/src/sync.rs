@@ -3,7 +3,8 @@ use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use redis::{AsyncCommands, Client as RedisClient};
 use shared::models::{
-    JiraSourceConfig, ServiceCredentials, ServiceProvider, SourceType, SyncRequest, SyncType,
+    ConfluenceSourceConfig, JiraSourceConfig, ServiceCredentials, ServiceProvider, SourceType,
+    SyncRequest, SyncType,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -308,6 +309,15 @@ impl SyncManager {
             None
         };
 
+        let space_filters: Option<Vec<String>> = if source_type == SourceType::Confluence {
+            serde_json::from_value::<ConfluenceSourceConfig>(source.config.clone())
+                .ok()
+                .and_then(|c| c.space_filters)
+                .filter(|f| !f.is_empty())
+        } else {
+            None
+        };
+
         if source_type != SourceType::Confluence && source_type != SourceType::Jira {
             let err_msg = format!(
                 "Invalid source type for Atlassian connector: {:?}",
@@ -365,6 +375,7 @@ impl SyncManager {
                 &source.source_type,
                 &cancelled,
                 &project_filters,
+                &space_filters,
             )
             .await
         } else {
@@ -380,6 +391,7 @@ impl SyncManager {
                 last_sync,
                 &cancelled,
                 &project_filters,
+                &space_filters,
             )
             .await
         };
@@ -433,11 +445,12 @@ impl SyncManager {
         source_type: &SourceType,
         cancelled: &AtomicBool,
         project_filters: &Option<Vec<String>>,
+        space_filters: &Option<Vec<String>>,
     ) -> Result<u32> {
         match source_type {
             SourceType::Confluence => {
                 self.confluence_processor
-                    .sync_all_spaces(credentials, source_id, sync_run_id, cancelled)
+                    .sync_all_spaces(credentials, source_id, sync_run_id, cancelled, space_filters)
                     .await
             }
             SourceType::Jira => {
@@ -464,6 +477,7 @@ impl SyncManager {
         last_sync: DateTime<Utc>,
         cancelled: &AtomicBool,
         project_filters: &Option<Vec<String>>,
+        space_filters: &Option<Vec<String>>,
     ) -> Result<u32> {
         match source_type {
             SourceType::Confluence => {
@@ -474,6 +488,7 @@ impl SyncManager {
                         sync_run_id,
                         last_sync,
                         cancelled,
+                        space_filters,
                     )
                     .await
             }
