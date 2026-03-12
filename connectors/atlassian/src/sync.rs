@@ -2,7 +2,9 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use redis::{AsyncCommands, Client as RedisClient};
-use shared::models::{ServiceCredentials, ServiceProvider, SourceType, SyncRequest, SyncType};
+use shared::models::{
+    JiraSourceConfig, ServiceCredentials, ServiceProvider, SourceType, SyncRequest, SyncType,
+};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -297,6 +299,15 @@ impl SyncManager {
         }
 
         let source_type = source.source_type.clone();
+        let project_filters: Option<Vec<String>> = if source_type == SourceType::Jira {
+            serde_json::from_value::<JiraSourceConfig>(source.config.clone())
+                .ok()
+                .and_then(|c| c.project_filters)
+                .filter(|f| !f.is_empty())
+        } else {
+            None
+        };
+
         if source_type != SourceType::Confluence && source_type != SourceType::Jira {
             let err_msg = format!(
                 "Invalid source type for Atlassian connector: {:?}",
@@ -353,6 +364,7 @@ impl SyncManager {
                 sync_run_id,
                 &source.source_type,
                 &cancelled,
+                &project_filters,
             )
             .await
         } else {
@@ -367,6 +379,7 @@ impl SyncManager {
                 &source.source_type,
                 last_sync,
                 &cancelled,
+                &project_filters,
             )
             .await
         };
@@ -419,6 +432,7 @@ impl SyncManager {
         sync_run_id: &str,
         source_type: &SourceType,
         cancelled: &AtomicBool,
+        project_filters: &Option<Vec<String>>,
     ) -> Result<u32> {
         match source_type {
             SourceType::Confluence => {
@@ -428,7 +442,13 @@ impl SyncManager {
             }
             SourceType::Jira => {
                 self.jira_processor
-                    .sync_all_projects(credentials, source_id, sync_run_id, cancelled)
+                    .sync_all_projects(
+                        credentials,
+                        source_id,
+                        sync_run_id,
+                        cancelled,
+                        project_filters,
+                    )
                     .await
             }
             _ => Err(anyhow!("Unsupported source type: {:?}", source_type)),
@@ -443,6 +463,7 @@ impl SyncManager {
         source_type: &SourceType,
         last_sync: DateTime<Utc>,
         cancelled: &AtomicBool,
+        project_filters: &Option<Vec<String>>,
     ) -> Result<u32> {
         match source_type {
             SourceType::Confluence => {
@@ -462,7 +483,7 @@ impl SyncManager {
                         credentials,
                         source_id,
                         last_sync,
-                        None,
+                        project_filters.as_ref(),
                         sync_run_id,
                         cancelled,
                     )
